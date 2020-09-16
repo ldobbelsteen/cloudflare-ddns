@@ -1,0 +1,25 @@
+# Your root domain without subdomain
+zone: "example.com"
+
+# Cloudflare API token with DNS edit access to the zone.
+# These can be made at https://dash.cloudflare.com/profile/api-tokens.
+token: "your-token"
+
+# The name of the record(s) which should be monitored and updated.
+# For example "ddns" would keep the record(s) pointing to "ddns.example.com" updated.
+# A value of "@" stands for the root domain (in this case "example.com")
+record: "@"
+
+# The interval in seconds between updating the record(s).
+# If set to 0, the timer is disabled and the script runs just once.
+timer: 0
+
+# Create and remove records based on the availability of public IPs on the machine.
+# For example when a public IPv6 address is detected but there is no AAAA record, create one.
+# And for example when there is an A record but the machine doesn't have a public IPv4 address, remove it.
+# When creating a record, it copies the proxy status and TTL from the other record if present.
+morphing: false
+
+# Disable detecting IPv4 or IPv6 addresses if they are not wanted
+disable_ipv4: false
+disable_ipv6: false
