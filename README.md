@@ -27,8 +27,8 @@ docker run \
     --detach \
     --network host \
     --restart always \
-    --volume /path/to/config:/cloudflare/config.yml \
     ldobbelsteen/cloudflare-ddns
+    --volume /path/to/config:/cloudflare.yml \
 ```
 Setting network access to `host` is needed for IPv6 functionality.
 
