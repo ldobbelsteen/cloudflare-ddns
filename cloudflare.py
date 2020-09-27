@@ -1,16 +1,11 @@
 import datetime
 import requests
 import socket
-import time
 import json
 import yaml
 import sys
 
 api_url = "https://api.cloudflare.com/client/v4"
-
-def log(message):
-    time = datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S - ")
-    print(time + message)
 
 def verify_token(token):
     header = {
@@ -20,7 +15,7 @@ def verify_token(token):
     url = api_url + "/user/tokens/verify"
     response = requests.request("GET", url, headers=header)
     if response.status_code != 200:
-        log("ERROR: Token is invalid")
+        print("ERROR: Token is invalid")
         exit()
     else:
         return header
@@ -31,7 +26,7 @@ def get_zone_id(zone, token):
         response = requests.request("GET", url, headers=token)
         return json.loads(response.text)["result"][0]["id"]
     except:
-        log("ERROR: Zone could not be found")
+        print("ERROR: Zone could not be found")
         exit()
 
 def get_records(zone, name, token):
@@ -61,21 +56,21 @@ def update_record(record, ip, token):
         "content": ip
     })
     result = json.loads(response.text)["result"]
-    log("{} record IP updated from {} to {}...".format(record["type"], record["content"], result["content"]))
+    print("{} record IP updated from {} to {}...".format(record["type"], record["content"], result["content"]))
     return result
 
 def create_record(zone, properties, token):
     url = api_url + "/zones/" + zone + "/dns_records"
     response = requests.request("POST", url, headers=token, json=properties)
     result = json.loads(response.text)["result"]
-    log("{} record created with IP {}, a TTL of {} second(s) and proxying {}...".format(result["type"], result["content"], result["ttl"], "on" if result["proxied"] else "off"))
+    print("{} record created with IP {}, a TTL of {} second(s) and proxying {}...".format(result["type"], result["content"], result["ttl"], "on" if result["proxied"] else "off"))
     return result
 
 def remove_record(record, token):
     url = api_url + "/zones/" + record["zone_id"] + "/dns_records/" + record["id"]
     response = requests.request("DELETE", url, headers=token)
     result = json.loads(response.text)["result"]
-    log("{} record has been removed...".format(record["type"]))
+    print("{} record has been removed...".format(record["type"]))
     return result
 
 def update_routine(config):
