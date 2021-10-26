@@ -119,6 +119,7 @@ def update_routine(config):
     a_record, aaaa_record = get_records(
         config["zone"], config["record"], config["token"])
     if a_record is not None or config["morphing"]:
+        ipv4 = None
         if not config["disable_ipv4"]:
             ipv4 = get_ip(4)
         if a_record is not None and ipv4 is not None and ipv4 != a_record["content"]:
@@ -135,6 +136,7 @@ def update_routine(config):
         elif a_record is not None and ipv4 is None and config["morphing"]:
             a_record = remove_record(a_record, config["token"])
     if aaaa_record is not None or config["morphing"]:
+        ipv6 = None
         if not config["disable_ipv6"]:
             ipv6 = get_ip(6)
         if aaaa_record is not None and ipv6 is not None and ipv6 != aaaa_record["content"]:
