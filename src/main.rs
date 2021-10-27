@@ -143,9 +143,9 @@ fn get_records(
 
 fn get_ip(ipv4_or_ipv6: bool, disabled: bool) -> Option<IpAddr> {
     let url = if ipv4_or_ipv6 {
-        "http://ipv4.icanhazip.com"
+        "https://ipv4.icanhazip.com"
     } else {
-        "http://ipv6.icanhazip.com"
+        "https://ipv6.icanhazip.com"
     };
     if !disabled {
         match reqwest::blocking::get(url) {
