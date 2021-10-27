@@ -161,11 +161,11 @@ fn get_ip(ipv4_or_ipv6: bool, disabled: bool) -> Option<IpAddr> {
                 Some(ip)
             }
             Err(error) => {
-                if error.is_connect() {
-                    None
-                } else {
+                if !error.to_string().contains("unreachable") {
                     warn!("Failed to fetch IP: {}", error);
                     process::exit(1);
+                } else {
+                    None
                 }
             }
         }
