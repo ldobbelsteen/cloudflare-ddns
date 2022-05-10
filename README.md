@@ -37,7 +37,7 @@ docker run \
     --detach \
     --network host \
     --restart always \
-    --volume /path/to/config:/config/cloudflare.yml \
+    --volume /path/to/config:/config/cloudflare-ddns.yml \
     ghcr.io/ldobbelsteen/cloudflare-ddns:main
 ```
 
