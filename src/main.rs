@@ -1,5 +1,5 @@
 use log::{error, info, warn};
-use reqwest::{blocking::Client, blocking::ClientBuilder, header};
+use reqwest::{header, Client, ClientBuilder};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
@@ -12,7 +12,7 @@ const API_BASE_URL: &str = "https://api.cloudflare.com/client/v4";
 
 #[derive(Debug, Deserialize)]
 struct Config {
-    interval: u64,
+    interval: u32,
     zone_name: String,
     api_token: String,
     record_name: String,
@@ -60,7 +60,7 @@ enum Action {
     Nothing,
 }
 
-fn build_client(token: &str) -> Client {
+async fn build_client(token: &str) -> Client {
     let mut headers = header::HeaderMap::new();
     let bearer =
         header::HeaderValue::from_str(&format!("Bearer {}", token)).unwrap_or_else(|error| {
@@ -76,7 +76,7 @@ fn build_client(token: &str) -> Client {
             exit(1);
         });
     let url = format!("{}{}", API_BASE_URL, "/user/tokens/verify");
-    let resp = client.get(url).send().unwrap_or_else(|error| {
+    let resp = client.get(url).send().await.unwrap_or_else(|error| {
         error!("Failed to verify API token: {}", error);
         exit(1);
     });
@@ -87,13 +87,13 @@ fn build_client(token: &str) -> Client {
     client
 }
 
-fn get_zone(client: &Client, zone_name: &str) -> Zone {
+async fn get_zone(client: &Client, zone_name: &str) -> Zone {
     let url = format!("{}{}{}", API_BASE_URL, "/zones?name=", zone_name);
-    let resp = client.get(url).send().unwrap_or_else(|error| {
+    let resp = client.get(url).send().await.unwrap_or_else(|error| {
         error!("Failed to fetch zone ID: {}", error);
         exit(1);
     });
-    let mut json: ZoneResults = resp.json().unwrap_or_else(|error| {
+    let mut json: ZoneResults = resp.json().await.unwrap_or_else(|error| {
         error!("Unexpected zone ID format: {}", error);
         exit(1);
     });
@@ -104,7 +104,7 @@ fn get_zone(client: &Client, zone_name: &str) -> Zone {
     json.result.remove(0)
 }
 
-fn get_records(
+async fn get_records(
     client: &Client,
     zone: &Zone,
     record_name: &str,
@@ -113,11 +113,11 @@ fn get_records(
         "{}{}{}{}{}",
         API_BASE_URL, "/zones/", zone.id, "/dns_records?type=A,AAAA&name=", record_name
     );
-    let resp = client.get(url).send().unwrap_or_else(|error| {
+    let resp = client.get(url).send().await.unwrap_or_else(|error| {
         error!("Failed to fetch records: {}", error);
         exit(1);
     });
-    let json: RecordResults = resp.json().unwrap_or_else(|error| {
+    let json: RecordResults = resp.json().await.unwrap_or_else(|error| {
         error!("Unexpected records format: {}", error);
         exit(1);
     });
@@ -136,7 +136,7 @@ fn get_records(
     (a_record, aaaa_record)
 }
 
-fn get_ip(ipv4_or_ipv6: bool, disabled: bool) -> Option<IpAddr> {
+async fn get_ip(ipv4_or_ipv6: bool, disabled: bool) -> Option<IpAddr> {
     let url = if ipv4_or_ipv6 {
         "https://ipv4.icanhazip.com"
     } else {
@@ -145,9 +145,9 @@ fn get_ip(ipv4_or_ipv6: bool, disabled: bool) -> Option<IpAddr> {
     if disabled {
         None
     } else {
-        match reqwest::blocking::get(url) {
+        match reqwest::get(url).await {
             Ok(resp) => {
-                let text = resp.text().unwrap_or_else(|error| {
+                let text = resp.text().await.unwrap_or_else(|error| {
                     error!("Failed to read IP response: {}", error);
                     exit(1);
                 });
@@ -172,19 +172,19 @@ fn get_ip(ipv4_or_ipv6: bool, disabled: bool) -> Option<IpAddr> {
     }
 }
 
-fn delete_record(client: &Client, record: Record) {
+async fn delete_record(client: &Client, record: Record) {
     let url = format!(
         "{}{}{}{}{}",
         API_BASE_URL, "/zones/", record.zone_id, "/dns_records/", record.id
     );
-    client.delete(url).send().unwrap_or_else(|error| {
+    client.delete(url).send().await.unwrap_or_else(|error| {
         error!("Failed to delete record: {}", error);
         exit(1);
     });
     info!("'{}' record has been deleted...", record.r#type);
 }
 
-fn update_record(client: &Client, record: Record, new_ip: IpAddr) -> Record {
+async fn update_record(client: &Client, record: Record, new_ip: IpAddr) -> Record {
     let url = format!(
         "{}{}{}{}{}",
         API_BASE_URL, "/zones/", record.zone_id, "/dns_records/", record.id
@@ -195,11 +195,12 @@ fn update_record(client: &Client, record: Record, new_ip: IpAddr) -> Record {
         .patch(url)
         .json(&data)
         .send()
+        .await
         .unwrap_or_else(|error| {
             error!("Failed to update record: {}", error);
             exit(1);
         });
-    let json: RecordResult = resp.json().unwrap_or_else(|error| {
+    let json: RecordResult = resp.json().await.unwrap_or_else(|error| {
         error!("Unexpected record format: {}", error);
         exit(1);
     });
@@ -210,7 +211,7 @@ fn update_record(client: &Client, record: Record, new_ip: IpAddr) -> Record {
     json.result
 }
 
-fn create_record(client: &Client, record: Record) -> Record {
+async fn create_record(client: &Client, record: Record) -> Record {
     let url = format!(
         "{}{}{}{}",
         API_BASE_URL, "/zones/", record.zone_id, "/dns_records"
@@ -219,11 +220,12 @@ fn create_record(client: &Client, record: Record) -> Record {
         .post(url)
         .json(&record)
         .send()
+        .await
         .unwrap_or_else(|error| {
             error!("Failed to create record: {}", error);
             exit(1);
         });
-    let json: RecordResult = resp.json().unwrap_or_else(|error| {
+    let json: RecordResult = resp.json().await.unwrap_or_else(|error| {
         error!("Unexpected record format: {}", error);
         exit(1);
     });
@@ -234,11 +236,12 @@ fn create_record(client: &Client, record: Record) -> Record {
     json.result
 }
 
-fn update_routine(config: &Config, client: &Client, zone: &Zone) {
-    let (existing_a_record, existing_aaaa_record) = get_records(client, zone, &config.record_name);
+async fn update_routine(config: &Config, client: &Client, zone: &Zone) {
+    let (existing_a_record, existing_aaaa_record) =
+        get_records(client, zone, &config.record_name).await;
 
     let a_action: Action = if let Some(record) = existing_a_record.clone() {
-        if let Some(ip) = get_ip(true, config.disable_ipv4) {
+        if let Some(ip) = get_ip(true, config.disable_ipv4).await {
             if ip != record.content {
                 Action::Update(record, ip)
             } else {
@@ -251,7 +254,7 @@ fn update_routine(config: &Config, client: &Client, zone: &Zone) {
         }
     } else {
         if config.create_records {
-            if let Some(ip) = get_ip(true, config.disable_ipv4) {
+            if let Some(ip) = get_ip(true, config.disable_ipv4).await {
                 Action::Create(Record {
                     content: ip,
                     id: "".to_string(),
@@ -273,7 +276,7 @@ fn update_routine(config: &Config, client: &Client, zone: &Zone) {
     };
 
     let aaaa_action: Action = if let Some(record) = existing_aaaa_record.clone() {
-        if let Some(ip) = get_ip(false, config.disable_ipv6) {
+        if let Some(ip) = get_ip(false, config.disable_ipv6).await {
             if ip != record.content {
                 Action::Update(record, ip)
             } else {
@@ -286,7 +289,7 @@ fn update_routine(config: &Config, client: &Client, zone: &Zone) {
         }
     } else {
         if config.create_records {
-            if let Some(ip) = get_ip(false, config.disable_ipv6) {
+            if let Some(ip) = get_ip(false, config.disable_ipv6).await {
                 Action::Create(Record {
                     content: ip,
                     id: "".to_string(),
@@ -304,23 +307,26 @@ fn update_routine(config: &Config, client: &Client, zone: &Zone) {
         }
     };
 
-    let perform_action = |action: Action| match action {
-        Action::Create(rec) => {
-            create_record(client, rec);
+    let perform_action = |action: Action| async {
+        match action {
+            Action::Create(rec) => {
+                create_record(client, rec).await;
+            }
+            Action::Update(rec, ip) => {
+                update_record(client, rec, ip).await;
+            }
+            Action::Delete(rec) => {
+                delete_record(client, rec).await;
+            }
+            Action::Nothing => {}
         }
-        Action::Update(rec, ip) => {
-            update_record(client, rec, ip);
-        }
-        Action::Delete(rec) => {
-            delete_record(client, rec);
-        }
-        Action::Nothing => {}
     };
-    perform_action(a_action);
-    perform_action(aaaa_action);
+    perform_action(a_action).await;
+    perform_action(aaaa_action).await;
 }
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::env::set_var("RUST_LOG", "info");
     env_logger::init();
     info!("Starting up...");
@@ -351,17 +357,19 @@ fn main() {
         config.record_name + "." + &config.zone_name
     };
 
-    let client = build_client(&config.api_token);
-    let zone = get_zone(&client, &config.zone_name);
+    let client = build_client(&config.api_token).await;
+    let zone = get_zone(&client, &config.zone_name).await;
 
     if config.interval == 0 {
-        update_routine(&config, &client, &zone);
+        update_routine(&config, &client, &zone).await;
     } else {
         loop {
-            update_routine(&config, &client, &zone);
+            update_routine(&config, &client, &zone).await;
             for _ in 0..config.interval {
                 sleep(Duration::from_secs(1));
             }
         }
-    }
+    };
+
+    Ok(())
 }
