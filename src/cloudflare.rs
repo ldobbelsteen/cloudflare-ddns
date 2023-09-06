@@ -79,34 +79,34 @@ pub async fn dynamic_dns_routine(config: &Config, client: &Client, zone_id: &str
     let (existing_a_record, existing_aaaa_record) =
         get_records(client, zone_id, &config.record_name).await?;
 
-    let ipv4 = if !config.disable_ipv4 {
-        get_public_ipv4().await?
-    } else {
-        None
-    };
-
-    let ipv6 = if !config.disable_ipv6 {
-        get_public_ipv6().await?
-    } else {
-        None
-    };
-
     let mut actions: Vec<Action> = Vec::new();
 
     match &existing_a_record {
-        Some(r) => match ipv4 {
-            Some(ip) => {
-                if ip != r.content {
-                    actions.push(Action::Update(r.clone(), ip.into()));
+        Some(r) => {
+            let ipv4 = if !config.disable_ipv4 {
+                get_public_ipv4().await?
+            } else {
+                None
+            };
+            match ipv4 {
+                Some(ip) => {
+                    if ip != r.content {
+                        actions.push(Action::Update(r.clone(), ip.into()));
+                    }
+                }
+                None => {
+                    if config.delete_records {
+                        actions.push(Action::Delete(r.clone()));
+                    }
                 }
             }
-            None => {
-                if config.delete_records {
-                    actions.push(Action::Delete(r.clone()));
-                }
-            }
-        },
+        }
         None => {
+            let ipv4 = if !config.disable_ipv4 {
+                get_public_ipv4().await?
+            } else {
+                None
+            };
             if let Some(ip) = ipv4 {
                 if config.create_records {
                     actions.push(Action::Create(Record {
@@ -130,19 +130,31 @@ pub async fn dynamic_dns_routine(config: &Config, client: &Client, zone_id: &str
     }
 
     match &existing_aaaa_record {
-        Some(r) => match ipv6 {
-            Some(ip) => {
-                if ip != r.content {
-                    actions.push(Action::Update(r.clone(), ip.into()));
+        Some(r) => {
+            let ipv6 = if !config.disable_ipv6 {
+                get_public_ipv6().await?
+            } else {
+                None
+            };
+            match ipv6 {
+                Some(ip) => {
+                    if ip != r.content {
+                        actions.push(Action::Update(r.clone(), ip.into()));
+                    }
+                }
+                None => {
+                    if config.delete_records {
+                        actions.push(Action::Delete(r.clone()));
+                    }
                 }
             }
-            None => {
-                if config.delete_records {
-                    actions.push(Action::Delete(r.clone()));
-                }
-            }
-        },
+        }
         None => {
+            let ipv6 = if !config.disable_ipv6 {
+                get_public_ipv6().await?
+            } else {
+                None
+            };
             if let Some(ip) = ipv6 {
                 if config.create_records {
                     actions.push(Action::Create(Record {
