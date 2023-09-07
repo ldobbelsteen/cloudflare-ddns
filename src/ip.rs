@@ -16,12 +16,8 @@ pub async fn get_public_ipv4() -> Result<Option<Ipv4Addr>> {
             Ok(Some(ip))
         }
         Err(e) => {
-            let err_str = e.to_string();
-            if !err_str.contains("unreachable")
-                && !err_str.contains("connect")
-                && !err_str.contains("tcp")
-                && !err_str.contains("udp")
-            {
+            let es = e.to_string();
+            if !es.contains("tcp connect error") && !es.contains("udp connect error") {
                 Err(e.into())
             } else {
                 Ok(None)
@@ -38,12 +34,8 @@ pub async fn get_public_ipv6() -> Result<Option<Ipv6Addr>> {
             Ok(Some(ip))
         }
         Err(e) => {
-            let err_str = e.to_string();
-            if !err_str.contains("unreachable")
-                && !err_str.contains("connect")
-                && !err_str.contains("tcp")
-                && !err_str.contains("udp")
-            {
+            let es = e.to_string();
+            if !es.contains("tcp connect error") && !es.contains("udp connect error") {
                 Err(e.into())
             } else {
                 Ok(None)
