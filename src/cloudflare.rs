@@ -1,28 +1,13 @@
 use crate::ip::{get_public_ipv4, get_public_ipv6};
 use crate::Config;
-use error_chain::error_chain;
+use anyhow::{bail, Result};
+use log::{info, warn};
 use reqwest::{header, Client, ClientBuilder};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::IpAddr;
 
 const API_BASE_URL: &str = "https://api.cloudflare.com/client/v4";
-
-error_chain! {
-    foreign_links {
-        Reqwest(reqwest::Error);
-        Ip(crate::ip::Error);
-    }
-
-    errors {
-        ZoneNotFound(zone: String) {
-            display("zone '{}' not found", zone)
-        }
-        InvalidTokenCharacters(token: String) {
-            display("token '{}' contains invalid characters", token)
-        }
-    }
-}
 
 #[derive(Clone, Deserialize, Serialize)]
 struct Record {
@@ -43,9 +28,10 @@ enum Action {
 
 pub async fn build_client(token: &str) -> Result<Client> {
     let mut headers = header::HeaderMap::new();
-    let bearer = header::HeaderValue::try_from(&format!("Bearer {}", token))
-        .or_else(|_| Err(ErrorKind::InvalidTokenCharacters(token.into())))?;
-    headers.insert(header::AUTHORIZATION, bearer);
+    headers.insert(
+        header::AUTHORIZATION,
+        header::HeaderValue::from_str(&format!("Bearer {}", token))?,
+    );
     let client = ClientBuilder::new().default_headers(headers).build()?;
     let url = format!("{}/user/tokens/verify", API_BASE_URL);
     let resp = client.get(url).send().await?;
@@ -69,13 +55,15 @@ pub async fn get_zone_id(client: &Client, zone_name: &str) -> Result<String> {
 
     let json: Response = resp.json().await?;
     if json.result.len() == 0 {
-        return Err(ErrorKind::ZoneNotFound(zone_name.into()).into());
+        bail!("zone '{}' not found", zone_name);
     }
 
     Ok(json.result[0].id.to_owned())
 }
 
 pub async fn dynamic_dns_routine(config: &Config, client: &Client, zone_id: &str) -> Result<()> {
+    info!("running dynamic dns routine...");
+
     let (existing_a_record, existing_aaaa_record) =
         get_records(client, zone_id, &config.record_name).await?;
 
@@ -181,26 +169,30 @@ pub async fn dynamic_dns_routine(config: &Config, client: &Client, zone_id: &str
         match action {
             Action::Create(r) => {
                 match create_record(client, r).await {
-                    Err(e) => eprintln!("[WARN] error while creating record: {}", e),
-                    Ok(r) => println!("[INFO] {} record created with IP {}, a TTL of {} second(s) and proxying {}...", r.r#type, r.content, r.ttl, r.proxied)
+                    Err(e) => warn!("error while creating record: {}", e),
+                    Ok(r) => info!(
+                        "{} record created with IP {}, a TTL of {} second(s) and proxying {}...",
+                        r.r#type, r.content, r.ttl, r.proxied
+                    ),
                 };
             }
             Action::Update(r, ip) => {
                 match update_record(client, r, ip).await {
-                    Err(e) => eprintln!("[WARN] error while updating record: {}", e),
-                    Ok(r) => println!("[INFO] {} record IP updated to {}...", r.r#type, r.content),
+                    Err(e) => warn!("error while updating record: {}", e),
+                    Ok(r) => info!("{} record IP updated to {}...", r.r#type, r.content),
                 };
             }
             Action::Delete(r) => {
                 let record_type = r.r#type.clone();
                 match delete_record(client, r).await {
-                    Err(e) => eprintln!("[WARN] error while deleting record: {}", e),
-                    Ok(()) => println!("[INFO] {} record has been deleted...", record_type),
+                    Err(e) => warn!("error while deleting record: {}", e),
+                    Ok(()) => info!("{} record has been deleted...", record_type),
                 };
             }
         }
     }
 
+    info!("finished dynamic dns routine...");
     Ok(())
 }
 

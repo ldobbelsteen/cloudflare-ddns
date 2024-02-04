@@ -1,9 +1,13 @@
-mod cloudflare;
-mod ip;
+#![warn(clippy::pedantic)]
 
+use anyhow::Result;
 use clap::Parser;
 use cloudflare::{build_client, dynamic_dns_routine, get_zone_id};
 use serde::Deserialize;
+use std::{fs::File, time::Duration};
+
+mod cloudflare;
+mod ip;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
@@ -24,24 +28,15 @@ struct Args {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "info");
+    }
+    env_logger::builder().format_target(false).try_init()?;
+
     let args = Args::parse();
-
-    let config_file = std::fs::File::open(&args.config).unwrap_or_else(|err| {
-        eprintln!(
-            "[FATAL] failed to read config file at '{}': {}",
-            args.config, err
-        );
-        std::process::exit(1);
-    });
-
-    let mut config: Config = serde_yaml::from_reader(config_file).unwrap_or_else(|err| {
-        eprintln!(
-            "[FATAL] failed to parse config file at '{}': {}",
-            args.config, err
-        );
-        std::process::exit(1);
-    });
+    let config_file = File::open(&args.config)?;
+    let mut config: Config = serde_yaml::from_reader(config_file)?;
 
     config.record_name = if config.record_name == "@" {
         config.zone_name.clone()
@@ -49,35 +44,18 @@ async fn main() {
         config.record_name + "." + &config.zone_name
     };
 
-    let client = build_client(&config.api_token).await.unwrap_or_else(|err| {
-        eprintln!("[FATAL] failed to build api client: {}", err);
-        std::process::exit(1);
-    });
-
-    let zone = get_zone_id(&client, &config.zone_name)
-        .await
-        .unwrap_or_else(|err| {
-            eprintln!("[FATAL] failed to find specified zone: {}", err);
-            std::process::exit(1);
-        });
+    let client = build_client(&config.api_token).await?;
+    let zone = get_zone_id(&client, &config.zone_name).await?;
 
     if config.interval == 0 {
-        dynamic_dns_routine(&config, &client, &zone)
-            .await
-            .unwrap_or_else(|err| {
-                eprintln!("[FATAL] update failed: {}", err);
-                std::process::exit(1);
-            });
+        dynamic_dns_routine(&config, &client, &zone).await?;
     } else {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(config.interval));
+        let mut interval = tokio::time::interval(Duration::from_secs(config.interval));
         loop {
-            dynamic_dns_routine(&config, &client, &zone)
-                .await
-                .unwrap_or_else(|err| {
-                    eprintln!("[FATAL] routine update failed: {}", err);
-                    std::process::exit(1);
-                });
+            dynamic_dns_routine(&config, &client, &zone).await?;
             interval.tick().await;
         }
     };
+
+    Ok(())
 }

@@ -1,12 +1,5 @@
-use error_chain::error_chain;
+use anyhow::Result;
 use std::net::{Ipv4Addr, Ipv6Addr};
-
-error_chain! {
-    foreign_links {
-        Reqwest(reqwest::Error);
-        Parse(std::net::AddrParseError);
-    }
-}
 
 pub async fn get_public_ipv4() -> Result<Option<Ipv4Addr>> {
     match reqwest::get("https://ipv4.icanhazip.com").await {
