@@ -51,6 +51,7 @@ async fn main() -> Result<()> {
         dynamic_dns_routine(&config, &client, &zone).await?;
     } else {
         let mut interval = tokio::time::interval(Duration::from_secs(config.interval));
+        interval.tick().await; // the first tick completes immediately
         loop {
             dynamic_dns_routine(&config, &client, &zone).await?;
             interval.tick().await;
