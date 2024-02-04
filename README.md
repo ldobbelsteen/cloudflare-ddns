@@ -37,9 +37,9 @@ the settings are given there.
 
 ## Docker
 
-To help with automation, there is a Dockerfile present to build a lean Docker
-image. There is a pre-built image available on the GitHub Packages of this
-repository. An example of how the image can be used:
+To help with automation, there is a Containerfile present to build a lean
+container image. There is a pre-built image available on the GitHub Packages of
+this repository. An example of how the image can be used:
 
 ```
 docker run \

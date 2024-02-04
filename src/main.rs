@@ -32,6 +32,9 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "info");
+    }
     env_logger::builder().init();
 
     let args = Args::parse();
@@ -53,9 +56,10 @@ async fn main() -> Result<()> {
         routine(&config, &client, &zone).await;
     } else {
         let mut interval = tokio::time::interval(Duration::from_secs(config.interval));
+        interval.tick().await; // the first tick completes immediately
         loop {
-            interval.tick().await;
             routine(&config, &client, &zone).await;
+            interval.tick().await;
         }
     };
 
