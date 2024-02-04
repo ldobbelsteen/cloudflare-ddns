@@ -12,23 +12,20 @@ pub async fn build_client(token: &str) -> Result<Client> {
     let mut headers = HeaderMap::new();
     headers.insert(
         AUTHORIZATION,
-        HeaderValue::from_str(&format!("Bearer {}", token))?,
+        HeaderValue::from_str(&format!("Bearer {token}"))?,
     );
     let client = ClientBuilder::new().default_headers(headers).build()?;
     Ok(client)
 }
 
 pub async fn verify_token(client: &Client) -> Result<()> {
-    let url = format!("{}/user/tokens/verify", API_BASE_URL);
+    let url = format!("{API_BASE_URL}/user/tokens/verify");
     let resp = client.get(url).send().await?;
     resp.error_for_status()?;
     Ok(())
 }
 
 pub async fn get_zone_id(client: &Client, zone_name: &str) -> Result<String> {
-    let url = format!("{}/zones?name={}", API_BASE_URL, zone_name);
-    let resp = client.get(url).send().await?;
-
     #[derive(Debug, Deserialize)]
     struct ZoneResult {
         id: String,
@@ -39,12 +36,15 @@ pub async fn get_zone_id(client: &Client, zone_name: &str) -> Result<String> {
         result: Vec<ZoneResult>,
     }
 
+    let url = format!("{API_BASE_URL}/zones?name={zone_name}");
+    let resp = client.get(url).send().await?;
+
     let json: Response = resp.json().await?;
-    if json.result.len() == 0 {
+    if json.result.is_empty() {
         bail!("zone '{}' not found", zone_name);
     }
 
-    Ok(json.result[0].id.to_owned())
+    Ok(json.result[0].id.clone())
 }
 
 pub async fn get_records(
@@ -52,21 +52,18 @@ pub async fn get_records(
     zone_id: &str,
     record_name: &str,
 ) -> Result<(Option<Record>, Option<Record>)> {
-    let url = format!(
-        "{}/zones/{}/dns_records?type=A,AAAA&name={}",
-        API_BASE_URL, zone_id, record_name
-    );
-    let resp = client.get(url).send().await?;
-
     #[derive(Debug, Deserialize)]
     struct Response {
         result: Vec<Record>,
     }
 
+    let url = format!("{API_BASE_URL}/zones/{zone_id}/dns_records?type=A,AAAA&name={record_name}");
+    let resp = client.get(url).send().await?;
+
     let json: Response = resp.json().await?;
     let mut a_record: Option<Record> = None;
     let mut aaaa_record: Option<Record> = None;
-    for record in json.result.into_iter() {
+    for record in json.result {
         match record.content {
             IpAddr::V4(_) => {
                 a_record = Some(record);
@@ -90,6 +87,11 @@ pub async fn delete_record(client: &Client, record: Record) -> Result<()> {
 }
 
 pub async fn update_record(client: &Client, record: Record, new_ip: IpAddr) -> Result<Record> {
+    #[derive(Debug, Deserialize)]
+    struct Response {
+        result: Record,
+    }
+
     let url = format!(
         "{}{}{}{}{}",
         API_BASE_URL, "/zones/", record.zone_id, "/dns_records/", record.id
@@ -98,26 +100,21 @@ pub async fn update_record(client: &Client, record: Record, new_ip: IpAddr) -> R
     data.insert("content", new_ip.to_string());
     let resp = client.patch(url).json(&data).send().await?;
 
-    #[derive(Debug, Deserialize)]
-    struct Response {
-        result: Record,
-    }
-
     let json: Response = resp.json().await?;
     Ok(json.result)
 }
 
 pub async fn create_record(client: &Client, record: Record) -> Result<Record> {
+    #[derive(Debug, Deserialize)]
+    struct Response {
+        result: Record,
+    }
+
     let url = format!(
         "{}{}{}{}",
         API_BASE_URL, "/zones/", record.zone_id, "/dns_records"
     );
     let resp = client.post(url).json(&record).send().await?;
-
-    #[derive(Debug, Deserialize)]
-    struct Response {
-        result: Record,
-    }
 
     let json: Response = resp.json().await?;
     Ok(json.result)

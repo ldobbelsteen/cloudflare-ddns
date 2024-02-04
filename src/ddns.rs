@@ -26,6 +26,7 @@ enum Action {
     Delete(Record),
 }
 
+#[allow(clippy::too_many_lines)]
 pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
     info!("running update routine...");
 
@@ -41,7 +42,9 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
 
     match &a_rec {
         Some(r) => {
-            let ipv4 = if !config.disable_ipv4 {
+            let ipv4 = if config.disable_ipv4 {
+                None
+            } else {
                 match get_public_ipv4().await {
                     Ok(res) => res,
                     Err(e) => {
@@ -49,8 +52,6 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
                         return;
                     }
                 }
-            } else {
-                None
             };
             match ipv4 {
                 Some(ip) => {
@@ -66,7 +67,9 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
             }
         }
         None => {
-            let ipv4 = if !config.disable_ipv4 {
+            let ipv4 = if config.disable_ipv4 {
+                None
+            } else {
                 match get_public_ipv4().await {
                     Ok(res) => res,
                     Err(e) => {
@@ -74,13 +77,11 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
                         return;
                     }
                 }
-            } else {
-                None
             };
             if let Some(ip) = ipv4 {
                 if config.create_records {
                     actions.push(Action::Create(Record {
-                        id: "".into(),
+                        id: String::new(),
                         name: config.record_name.clone(),
                         r#type: "A".into(),
                         zone_id: zone_id.into(),
@@ -101,7 +102,9 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
 
     match &aaaa_rec {
         Some(r) => {
-            let ipv6 = if !config.disable_ipv6 {
+            let ipv6 = if config.disable_ipv6 {
+                None
+            } else {
                 match get_public_ipv6().await {
                     Ok(res) => res,
                     Err(e) => {
@@ -109,8 +112,6 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
                         return;
                     }
                 }
-            } else {
-                None
             };
             match ipv6 {
                 Some(ip) => {
@@ -126,7 +127,9 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
             }
         }
         None => {
-            let ipv6 = if !config.disable_ipv6 {
+            let ipv6 = if config.disable_ipv6 {
+                None
+            } else {
                 match get_public_ipv6().await {
                     Ok(res) => res,
                     Err(e) => {
@@ -134,13 +137,11 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
                         return;
                     }
                 }
-            } else {
-                None
             };
             if let Some(ip) = ipv6 {
                 if config.create_records {
                     actions.push(Action::Create(Record {
-                        id: "".into(),
+                        id: String::new(),
                         name: config.record_name.clone(),
                         r#type: "AAAA".into(),
                         zone_id: zone_id.into(),
@@ -159,7 +160,7 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
         }
     }
 
-    if actions.len() == 0 {
+    if actions.is_empty() {
         info!("no action required...");
         return;
     }
@@ -183,10 +184,11 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
             }
             Action::Delete(r) => {
                 let record_type = r.r#type.clone();
-                match delete_record(client, r).await {
-                    Err(e) => warn!("error while deleting record: {}", e),
-                    Ok(()) => info!("{} record has been deleted...", record_type),
-                };
+                if let Err(e) = delete_record(client, r).await {
+                    warn!("error while deleting record: {}", e);
+                } else {
+                    info!("{} record has been deleted...", record_type);
+                }
             }
         }
     }

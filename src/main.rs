@@ -12,6 +12,7 @@ mod ddns;
 mod ip;
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Config {
     interval: u64,
     zone_name: String,
