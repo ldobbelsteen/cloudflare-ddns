@@ -2,14 +2,16 @@
 
 use anyhow::Result;
 use clap::Parser;
-use cloudflare::{build_client, dynamic_dns_routine, get_zone_id};
+use cloudflare::{build_client, get_zone_id, verify_token};
+use ddns::routine;
 use serde::Deserialize;
 use std::{fs::File, time::Duration};
 
 mod cloudflare;
+mod ddns;
 mod ip;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     interval: u64,
     zone_name: String,
@@ -21,7 +23,7 @@ pub struct Config {
     disable_ipv6: bool,
 }
 
-#[derive(Parser)]
+#[derive(Debug, Parser)]
 struct Args {
     #[clap(index = 1, default_value = "./config.yml")]
     config: String,
@@ -29,14 +31,11 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info");
-    }
-    env_logger::builder().format_target(false).try_init()?;
+    env_logger::builder().init();
 
     let args = Args::parse();
-    let config_file = File::open(&args.config)?;
-    let mut config: Config = serde_yaml::from_reader(config_file)?;
+    let file = File::open(&args.config)?;
+    let mut config: Config = serde_yaml::from_reader(file)?;
 
     config.record_name = if config.record_name == "@" {
         config.zone_name.clone()
@@ -45,16 +44,17 @@ async fn main() -> Result<()> {
     };
 
     let client = build_client(&config.api_token).await?;
+    verify_token(&client).await?;
+
     let zone = get_zone_id(&client, &config.zone_name).await?;
 
     if config.interval == 0 {
-        dynamic_dns_routine(&config, &client, &zone).await?;
+        routine(&config, &client, &zone).await;
     } else {
         let mut interval = tokio::time::interval(Duration::from_secs(config.interval));
-        interval.tick().await; // the first tick completes immediately
         loop {
-            dynamic_dns_routine(&config, &client, &zone).await?;
             interval.tick().await;
+            routine(&config, &client, &zone).await;
         }
     };
 

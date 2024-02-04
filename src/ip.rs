@@ -9,11 +9,11 @@ pub async fn get_public_ipv4() -> Result<Option<Ipv4Addr>> {
             Ok(Some(ip))
         }
         Err(e) => {
-            let es = e.to_string();
-            if !es.contains("tcp connect error") && !es.contains("udp connect error") {
-                Err(e.into())
-            } else {
+            if e.is_connect() {
+                // connect error (often) implies there is no ipv4 routing
                 Ok(None)
+            } else {
+                Err(e.into())
             }
         }
     }
@@ -27,11 +27,11 @@ pub async fn get_public_ipv6() -> Result<Option<Ipv6Addr>> {
             Ok(Some(ip))
         }
         Err(e) => {
-            let es = e.to_string();
-            if !es.contains("tcp connect error") && !es.contains("udp connect error") {
-                Err(e.into())
-            } else {
+            if e.is_connect() {
+                // connect error (often) implies there is no ipv6 routing
                 Ok(None)
+            } else {
+                Err(e.into())
             }
         }
     }

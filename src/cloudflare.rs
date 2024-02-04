@@ -1,54 +1,40 @@
-use crate::ip::{get_public_ipv4, get_public_ipv6};
-use crate::Config;
+use crate::ddns::Record;
 use anyhow::{bail, Result};
-use log::{info, warn};
-use reqwest::{header, Client, ClientBuilder};
-use serde::{Deserialize, Serialize};
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+use reqwest::{Client, ClientBuilder};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::net::IpAddr;
 
 const API_BASE_URL: &str = "https://api.cloudflare.com/client/v4";
 
-#[derive(Clone, Deserialize, Serialize)]
-struct Record {
-    id: String,
-    name: String,
-    r#type: String,
-    zone_id: String,
-    content: IpAddr,
-    proxied: bool,
-    ttl: u64,
-}
-
-enum Action {
-    Create(Record),
-    Update(Record, IpAddr),
-    Delete(Record),
-}
-
 pub async fn build_client(token: &str) -> Result<Client> {
-    let mut headers = header::HeaderMap::new();
+    let mut headers = HeaderMap::new();
     headers.insert(
-        header::AUTHORIZATION,
-        header::HeaderValue::from_str(&format!("Bearer {}", token))?,
+        AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {}", token))?,
     );
     let client = ClientBuilder::new().default_headers(headers).build()?;
+    Ok(client)
+}
+
+pub async fn verify_token(client: &Client) -> Result<()> {
     let url = format!("{}/user/tokens/verify", API_BASE_URL);
     let resp = client.get(url).send().await?;
     resp.error_for_status()?;
-    Ok(client)
+    Ok(())
 }
 
 pub async fn get_zone_id(client: &Client, zone_name: &str) -> Result<String> {
     let url = format!("{}/zones?name={}", API_BASE_URL, zone_name);
     let resp = client.get(url).send().await?;
 
-    #[derive(Deserialize)]
+    #[derive(Debug, Deserialize)]
     struct ZoneResult {
         id: String,
     }
 
-    #[derive(Deserialize)]
+    #[derive(Debug, Deserialize)]
     struct Response {
         result: Vec<ZoneResult>,
     }
@@ -61,142 +47,7 @@ pub async fn get_zone_id(client: &Client, zone_name: &str) -> Result<String> {
     Ok(json.result[0].id.to_owned())
 }
 
-pub async fn dynamic_dns_routine(config: &Config, client: &Client, zone_id: &str) -> Result<()> {
-    info!("running dynamic dns routine...");
-
-    let (existing_a_record, existing_aaaa_record) =
-        get_records(client, zone_id, &config.record_name).await?;
-
-    let mut actions: Vec<Action> = Vec::new();
-
-    match &existing_a_record {
-        Some(r) => {
-            let ipv4 = if !config.disable_ipv4 {
-                get_public_ipv4().await?
-            } else {
-                None
-            };
-            match ipv4 {
-                Some(ip) => {
-                    if ip != r.content {
-                        actions.push(Action::Update(r.clone(), ip.into()));
-                    }
-                }
-                None => {
-                    if config.delete_records {
-                        actions.push(Action::Delete(r.clone()));
-                    }
-                }
-            }
-        }
-        None => {
-            let ipv4 = if !config.disable_ipv4 {
-                get_public_ipv4().await?
-            } else {
-                None
-            };
-            if let Some(ip) = ipv4 {
-                if config.create_records {
-                    actions.push(Action::Create(Record {
-                        id: "".into(),
-                        name: config.record_name.clone(),
-                        r#type: "A".into(),
-                        zone_id: zone_id.into(),
-                        content: ip.into(),
-                        proxied: match &existing_aaaa_record {
-                            Some(r) => r.proxied,
-                            None => true,
-                        },
-                        ttl: match &existing_aaaa_record {
-                            Some(r) => r.ttl,
-                            None => 1,
-                        },
-                    }));
-                }
-            }
-        }
-    }
-
-    match &existing_aaaa_record {
-        Some(r) => {
-            let ipv6 = if !config.disable_ipv6 {
-                get_public_ipv6().await?
-            } else {
-                None
-            };
-            match ipv6 {
-                Some(ip) => {
-                    if ip != r.content {
-                        actions.push(Action::Update(r.clone(), ip.into()));
-                    }
-                }
-                None => {
-                    if config.delete_records {
-                        actions.push(Action::Delete(r.clone()));
-                    }
-                }
-            }
-        }
-        None => {
-            let ipv6 = if !config.disable_ipv6 {
-                get_public_ipv6().await?
-            } else {
-                None
-            };
-            if let Some(ip) = ipv6 {
-                if config.create_records {
-                    actions.push(Action::Create(Record {
-                        id: "".into(),
-                        name: config.record_name.clone(),
-                        r#type: "AAAA".into(),
-                        zone_id: zone_id.into(),
-                        content: ip.into(),
-                        proxied: match &existing_a_record {
-                            Some(r) => r.proxied,
-                            None => true,
-                        },
-                        ttl: match &existing_a_record {
-                            Some(r) => r.ttl,
-                            None => 1,
-                        },
-                    }));
-                }
-            }
-        }
-    }
-
-    for action in actions.into_iter() {
-        match action {
-            Action::Create(r) => {
-                match create_record(client, r).await {
-                    Err(e) => warn!("error while creating record: {}", e),
-                    Ok(r) => info!(
-                        "{} record created with IP {}, a TTL of {} second(s) and proxying {}...",
-                        r.r#type, r.content, r.ttl, r.proxied
-                    ),
-                };
-            }
-            Action::Update(r, ip) => {
-                match update_record(client, r, ip).await {
-                    Err(e) => warn!("error while updating record: {}", e),
-                    Ok(r) => info!("{} record IP updated to {}...", r.r#type, r.content),
-                };
-            }
-            Action::Delete(r) => {
-                let record_type = r.r#type.clone();
-                match delete_record(client, r).await {
-                    Err(e) => warn!("error while deleting record: {}", e),
-                    Ok(()) => info!("{} record has been deleted...", record_type),
-                };
-            }
-        }
-    }
-
-    info!("finished dynamic dns routine...");
-    Ok(())
-}
-
-async fn get_records(
+pub async fn get_records(
     client: &Client,
     zone_id: &str,
     record_name: &str,
@@ -207,7 +58,7 @@ async fn get_records(
     );
     let resp = client.get(url).send().await?;
 
-    #[derive(Deserialize)]
+    #[derive(Debug, Deserialize)]
     struct Response {
         result: Vec<Record>,
     }
@@ -229,7 +80,7 @@ async fn get_records(
     Ok((a_record, aaaa_record))
 }
 
-async fn delete_record(client: &Client, record: Record) -> Result<()> {
+pub async fn delete_record(client: &Client, record: Record) -> Result<()> {
     let url = format!(
         "{}{}{}{}{}",
         API_BASE_URL, "/zones/", record.zone_id, "/dns_records/", record.id
@@ -238,7 +89,7 @@ async fn delete_record(client: &Client, record: Record) -> Result<()> {
     Ok(())
 }
 
-async fn update_record(client: &Client, record: Record, new_ip: IpAddr) -> Result<Record> {
+pub async fn update_record(client: &Client, record: Record, new_ip: IpAddr) -> Result<Record> {
     let url = format!(
         "{}{}{}{}{}",
         API_BASE_URL, "/zones/", record.zone_id, "/dns_records/", record.id
@@ -247,7 +98,7 @@ async fn update_record(client: &Client, record: Record, new_ip: IpAddr) -> Resul
     data.insert("content", new_ip.to_string());
     let resp = client.patch(url).json(&data).send().await?;
 
-    #[derive(Deserialize)]
+    #[derive(Debug, Deserialize)]
     struct Response {
         result: Record,
     }
@@ -256,14 +107,14 @@ async fn update_record(client: &Client, record: Record, new_ip: IpAddr) -> Resul
     Ok(json.result)
 }
 
-async fn create_record(client: &Client, record: Record) -> Result<Record> {
+pub async fn create_record(client: &Client, record: Record) -> Result<Record> {
     let url = format!(
         "{}{}{}{}",
         API_BASE_URL, "/zones/", record.zone_id, "/dns_records"
     );
     let resp = client.post(url).json(&record).send().await?;
 
-    #[derive(Deserialize)]
+    #[derive(Debug, Deserialize)]
     struct Response {
         result: Record,
     }
