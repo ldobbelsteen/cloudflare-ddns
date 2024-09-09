@@ -42,17 +42,14 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
 
     match &a_rec {
         Some(r) => {
-            let ipv4 = if config.disable_ipv4 {
-                None
-            } else {
-                match get_public_ipv4().await {
-                    Ok(res) => res,
-                    Err(e) => {
-                        error!("failed to get public ipv4: {}", e);
-                        return;
-                    }
+            let ipv4 = match get_public_ipv4().await {
+                Ok(res) => res,
+                Err(e) => {
+                    error!("failed to get public ipv4: {}", e);
+                    return;
                 }
             };
+
             match ipv4 {
                 Some(ip) => {
                     if ip != r.content {
@@ -60,26 +57,28 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
                     }
                 }
                 None => {
-                    if config.delete_records {
+                    if config.manage_records {
                         actions.push(Action::Delete(r.clone()));
+                    } else {
+                        warn!(
+                            "public ipv4 not found but an A record ({}) exists, consider enabling record management",
+                            r.content
+                        );
                     }
                 }
             }
         }
         None => {
-            let ipv4 = if config.disable_ipv4 {
-                None
-            } else {
-                match get_public_ipv4().await {
-                    Ok(res) => res,
-                    Err(e) => {
-                        error!("failed to get public ipv4: {}", e);
-                        return;
-                    }
+            let ipv4 = match get_public_ipv4().await {
+                Ok(res) => res,
+                Err(e) => {
+                    error!("failed to get public ipv4: {}", e);
+                    return;
                 }
             };
+
             if let Some(ip) = ipv4 {
-                if config.create_records {
+                if config.manage_records {
                     actions.push(Action::Create(Record {
                         id: String::new(),
                         name: config.record_name.clone(),
@@ -95,6 +94,10 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
                             None => 1,
                         },
                     }));
+                } else {
+                    warn!(
+                        "public ipv4 found ({}) but no A record exists, consider enabling record management", ip
+                    );
                 }
             }
         }
@@ -102,17 +105,14 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
 
     match &aaaa_rec {
         Some(r) => {
-            let ipv6 = if config.disable_ipv6 {
-                None
-            } else {
-                match get_public_ipv6().await {
-                    Ok(res) => res,
-                    Err(e) => {
-                        error!("failed to get public ipv6: {}", e);
-                        return;
-                    }
+            let ipv6 = match get_public_ipv6().await {
+                Ok(res) => res,
+                Err(e) => {
+                    error!("failed to get public ipv6: {}", e);
+                    return;
                 }
             };
+
             match ipv6 {
                 Some(ip) => {
                     if ip != r.content {
@@ -120,26 +120,28 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
                     }
                 }
                 None => {
-                    if config.delete_records {
+                    if config.manage_records {
                         actions.push(Action::Delete(r.clone()));
+                    } else {
+                        warn!(
+                            "public ipv6 not found but an AAAA record ({}) exists, consider enabling record management",
+                            r.content
+                        );
                     }
                 }
             }
         }
         None => {
-            let ipv6 = if config.disable_ipv6 {
-                None
-            } else {
-                match get_public_ipv6().await {
-                    Ok(res) => res,
-                    Err(e) => {
-                        error!("failed to get public ipv6: {}", e);
-                        return;
-                    }
+            let ipv6 = match get_public_ipv6().await {
+                Ok(res) => res,
+                Err(e) => {
+                    error!("failed to get public ipv6: {}", e);
+                    return;
                 }
             };
+
             if let Some(ip) = ipv6 {
-                if config.create_records {
+                if config.manage_records {
                     actions.push(Action::Create(Record {
                         id: String::new(),
                         name: config.record_name.clone(),
@@ -155,6 +157,11 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
                             None => 1,
                         },
                     }));
+                } else {
+                    warn!(
+                        "public ipv6 found ({}) but no AAAA record exists, consider enabling record management",
+                        ip
+                    );
                 }
             }
         }

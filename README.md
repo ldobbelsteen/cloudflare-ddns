@@ -31,8 +31,8 @@ It should then be used as follows.
 cloudflare-ddns <config-file-location>
 ```
 
-The configuration file is in YAML format and should follow the format in the
-example config file `example-config.yml` in this repo. Explanations for each of
+The configuration file is in TOML format and should follow the format in the
+example config file `example-config.toml` in this repo. Explanations for each of
 the settings are given there.
 
 ## Docker
@@ -45,6 +45,6 @@ this repository. An example of how the image can be used:
 docker run \
     --detach \
     --restart on-failure \
-    --volume /path/to/config:/config.yml \
+    --volume /path/to/config:/config.toml \
     ghcr.io/ldobbelsteen/cloudflare-ddns
 ```

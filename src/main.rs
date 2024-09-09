@@ -5,28 +5,24 @@ use clap::Parser;
 use cloudflare::{build_client, get_zone_id, verify_token};
 use ddns::routine;
 use serde::Deserialize;
-use std::{fs::File, time::Duration};
+use std::{fs::read_to_string, time::Duration};
 
 mod cloudflare;
 mod ddns;
 mod ip;
 
 #[derive(Debug, Clone, Deserialize)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct Config {
-    interval: u64,
     zone_name: String,
     api_token: String,
     record_name: String,
-    create_records: bool,
-    delete_records: bool,
-    disable_ipv4: bool,
-    disable_ipv6: bool,
+    interval: u64,
+    manage_records: bool,
 }
 
 #[derive(Debug, Parser)]
 struct Args {
-    #[clap(index = 1, default_value = "./config.yml")]
+    #[clap(index = 1, default_value = "./config.toml")]
     config: String,
 }
 
@@ -38,8 +34,8 @@ async fn main() -> Result<()> {
     env_logger::builder().init();
 
     let args = Args::parse();
-    let file = File::open(&args.config)?;
-    let mut config: Config = serde_yaml::from_reader(file)?;
+    let file = read_to_string(args.config)?;
+    let mut config: Config = toml::from_str(&file)?;
 
     config.record_name = if config.record_name == "@" {
         config.zone_name.clone()
