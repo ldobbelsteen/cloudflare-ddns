@@ -4,6 +4,7 @@ use anyhow::Result;
 use clap::Parser;
 use cloudflare::{build_client, get_zone_id, verify_token};
 use ddns::routine;
+use log::error;
 use serde::Deserialize;
 use std::{fs::read_to_string, time::Duration};
 
@@ -49,12 +50,16 @@ async fn main() -> Result<()> {
     let zone = get_zone_id(&client, &config.zone_name).await?;
 
     if config.interval == 0 {
-        routine(&config, &client, &zone).await;
+        if let Err(e) = routine(&config, &client, &zone).await {
+            error!("update routine failed: {}", e);
+        }
     } else {
         let mut interval = tokio::time::interval(Duration::from_secs(config.interval));
         interval.tick().await; // the first tick completes immediately
         loop {
-            routine(&config, &client, &zone).await;
+            if let Err(e) = routine(&config, &client, &zone).await {
+                error!("update routine failed: {}", e);
+            }
             interval.tick().await;
         }
     };

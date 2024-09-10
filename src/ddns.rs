@@ -3,7 +3,8 @@ use crate::{
     ip::{get_public_ipv4, get_public_ipv6},
     Config,
 };
-use log::{error, info, warn};
+use anyhow::Result;
+use log::{debug, info, warn};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
@@ -26,65 +27,63 @@ enum Action {
     Delete(Record),
 }
 
-#[allow(clippy::too_many_lines)]
-pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
+pub async fn routine(config: &Config, client: &Client, zone_id: &str) -> Result<()> {
     info!("running update routine...");
 
-    let (a_rec, aaaa_rec) = match get_records(client, zone_id, &config.record_name).await {
-        Ok(res) => res,
-        Err(e) => {
-            error!("failed to get existing records: {}", e);
-            return;
-        }
-    };
+    let mut action_executed = false;
 
-    let mut actions: Vec<Action> = Vec::new();
+    if let Some(action) = get_a_record_action(config, zone_id, client).await? {
+        execute_action(client, action).await?;
+        action_executed = true;
+    }
+
+    if let Some(action) = get_aaaa_record_action(config, zone_id, client).await? {
+        execute_action(client, action).await?;
+        action_executed = true;
+    }
+
+    if !action_executed {
+        info!("no action required...");
+    }
+
+    Ok(())
+}
+
+async fn get_a_record_action(
+    config: &Config,
+    zone_id: &str,
+    client: &Client,
+) -> Result<Option<Action>> {
+    let (a_rec, aaaa_rec) = get_records(client, zone_id, &config.record_name).await?;
 
     match &a_rec {
         Some(r) => {
-            let ipv4 = match get_public_ipv4().await {
-                Ok(res) => res,
-                Err(e) => {
-                    error!("failed to get public ipv4: {}", e);
-                    return;
+            if let Some(ipv4) = get_public_ipv4().await? {
+                if ipv4 == r.content {
+                    debug!("public ipv4 found ({}) which matches the A record...", ipv4);
+                    Ok(None)
+                } else {
+                    Ok(Some(Action::Update(r.clone(), ipv4.into())))
                 }
-            };
-
-            match ipv4 {
-                Some(ip) => {
-                    if ip != r.content {
-                        actions.push(Action::Update(r.clone(), ip.into()));
-                    }
-                }
-                None => {
-                    if config.manage_records {
-                        actions.push(Action::Delete(r.clone()));
-                    } else {
-                        warn!(
-                            "public ipv4 not found but an A record ({}) exists, consider enabling record management",
-                            r.content
-                        );
-                    }
-                }
+            } else if config.manage_records {
+                Ok(Some(Action::Delete(r.clone())))
+            } else {
+                warn!(
+                    "public ipv4 not found but an A record ({}) exists, consider enabling record management",
+                    r.content
+                );
+                Ok(None)
             }
         }
         None => {
-            let ipv4 = match get_public_ipv4().await {
-                Ok(res) => res,
-                Err(e) => {
-                    error!("failed to get public ipv4: {}", e);
-                    return;
-                }
-            };
-
-            if let Some(ip) = ipv4 {
+            if let Some(ipv4) = get_public_ipv4().await? {
                 if config.manage_records {
-                    actions.push(Action::Create(Record {
+                    Ok(Some(Action::Create(Record {
                         id: String::new(),
                         name: config.record_name.clone(),
                         r#type: "A".into(),
                         zone_id: zone_id.into(),
-                        content: ip.into(),
+                        content: ipv4.into(),
                         proxied: match &aaaa_rec {
                             Some(r) => r.proxied,
                             None => true,
@@ -93,61 +92,59 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
                             Some(r) => r.ttl,
                             None => 1,
                         },
-                    }));
+                    })))
                 } else {
                     warn!(
-                        "public ipv4 found ({}) but no A record exists, consider enabling record management", ip
+                        "public ipv4 found ({}) but no A record exists, consider enabling record management", ipv4
                     );
+                    Ok(None)
                 }
+            } else {
+                debug!("public ipv4 not found, matching the absence of an A record...");
+                Ok(None)
             }
         }
     }
+}
+
+async fn get_aaaa_record_action(
+    config: &Config,
+    zone_id: &str,
+    client: &Client,
+) -> Result<Option<Action>> {
+    let (a_rec, aaaa_rec) = get_records(client, zone_id, &config.record_name).await?;
 
     match &aaaa_rec {
         Some(r) => {
-            let ipv6 = match get_public_ipv6().await {
-                Ok(res) => res,
-                Err(e) => {
-                    error!("failed to get public ipv6: {}", e);
-                    return;
+            if let Some(ipv6) = get_public_ipv6().await? {
+                if ipv6 == r.content {
+                    debug!(
+                        "public ipv6 found ({}) which matches the AAAA record...",
+                        ipv6
+                    );
+                    Ok(None)
+                } else {
+                    Ok(Some(Action::Update(r.clone(), ipv6.into())))
                 }
-            };
-
-            match ipv6 {
-                Some(ip) => {
-                    if ip != r.content {
-                        actions.push(Action::Update(r.clone(), ip.into()));
-                    }
-                }
-                None => {
-                    if config.manage_records {
-                        actions.push(Action::Delete(r.clone()));
-                    } else {
-                        warn!(
-                            "public ipv6 not found but an AAAA record ({}) exists, consider enabling record management",
-                            r.content
-                        );
-                    }
-                }
+            } else if config.manage_records {
+                Ok(Some(Action::Delete(r.clone())))
+            } else {
+                warn!(
+                    "public ipv6 not found but an AAAA record ({}) exists, consider enabling record management",
+                    r.content
+                );
+                Ok(None)
             }
         }
         None => {
-            let ipv6 = match get_public_ipv6().await {
-                Ok(res) => res,
-                Err(e) => {
-                    error!("failed to get public ipv6: {}", e);
-                    return;
-                }
-            };
-
-            if let Some(ip) = ipv6 {
+            if let Some(ipv6) = get_public_ipv6().await? {
                 if config.manage_records {
-                    actions.push(Action::Create(Record {
+                    Ok(Some(Action::Create(Record {
                         id: String::new(),
                         name: config.record_name.clone(),
                         r#type: "AAAA".into(),
                         zone_id: zone_id.into(),
-                        content: ip.into(),
+                        content: ipv6.into(),
                         proxied: match &a_rec {
                             Some(r) => r.proxied,
                             None => true,
@@ -156,47 +153,41 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) {
                             Some(r) => r.ttl,
                             None => 1,
                         },
-                    }));
+                    })))
                 } else {
                     warn!(
                         "public ipv6 found ({}) but no AAAA record exists, consider enabling record management",
-                        ip
+                        ipv6
                     );
+                    Ok(None)
                 }
+            } else {
+                debug!("public ipv6 not found, matching the absence of an AAAA record...");
+                Ok(None)
             }
         }
     }
+}
 
-    if actions.is_empty() {
-        info!("no action required...");
-        return;
-    }
-
-    for action in actions {
-        match action {
-            Action::Create(r) => {
-                match create_record(client, r).await {
-                    Err(e) => warn!("error while creating record: {}", e),
-                    Ok(r) => info!(
-                        "{} record created with IP {}, a TTL of {} second(s) and proxying {}...",
-                        r.r#type, r.content, r.ttl, r.proxied
-                    ),
-                };
-            }
-            Action::Update(r, ip) => {
-                match update_record(client, r, ip).await {
-                    Err(e) => warn!("error while updating record: {}", e),
-                    Ok(r) => info!("{} record IP updated to {}...", r.r#type, r.content),
-                };
-            }
-            Action::Delete(r) => {
-                let record_type = r.r#type.clone();
-                if let Err(e) = delete_record(client, r).await {
-                    warn!("error while deleting record: {}", e);
-                } else {
-                    info!("{} record has been deleted...", record_type);
-                }
-            }
+async fn execute_action(client: &Client, action: Action) -> Result<()> {
+    match action {
+        Action::Create(r) => {
+            let r = create_record(client, r).await?;
+            info!(
+                "{} record created with IP {}, a TTL of {} second(s) and proxying {}...",
+                r.r#type, r.content, r.ttl, r.proxied
+            );
+        }
+        Action::Update(r, ip) => {
+            let r = update_record(client, r, ip).await?;
+            info!("{} record IP updated to {}...", r.r#type, r.content);
+        }
+        Action::Delete(r) => {
+            let rtype = r.r#type.clone();
+            delete_record(client, r).await?;
+            info!("{} record has been deleted...", rtype);
         }
     }
+
+    Ok(())
 }
