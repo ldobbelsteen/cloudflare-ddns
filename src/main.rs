@@ -4,9 +4,9 @@ use anyhow::Result;
 use clap::Parser;
 use cloudflare::{build_client, get_zone_id, verify_token};
 use ddns::routine;
-use log::error;
 use serde::Deserialize;
 use std::{fs::read_to_string, time::Duration};
+use tokio::signal;
 
 mod cloudflare;
 mod ddns;
@@ -51,16 +51,27 @@ async fn main() -> Result<()> {
 
     if config.interval == 0 {
         if let Err(e) = routine(&config, &client, &zone).await {
-            error!("update routine failed: {}", e);
+            log::error!("update routine failed: {}", e);
         }
     } else {
         let mut interval = tokio::time::interval(Duration::from_secs(config.interval));
-        interval.tick().await; // the first tick completes immediately
-        loop {
-            if let Err(e) = routine(&config, &client, &zone).await {
-                error!("update routine failed: {}", e);
-            }
-            interval.tick().await;
+
+        let ctrl_c = async {
+            signal::ctrl_c().await.expect("failed to listen for ctrl-c");
+        };
+
+        tokio::select! {
+            () = async {
+                loop {
+                    interval.tick().await;
+                    if let Err(e) = routine(&config, &client, &zone).await {
+                        log::error!("update routine failed: {}", e);
+                    }
+                }
+            } => {},
+            () = ctrl_c => {
+                log::info!("ctrl-c received, exiting...");
+            },
         }
     };
 

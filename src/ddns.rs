@@ -4,7 +4,6 @@ use crate::{
     Config,
 };
 use anyhow::Result;
-use log::{debug, info, warn};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
@@ -28,7 +27,7 @@ enum Action {
 }
 
 pub async fn routine(config: &Config, client: &Client, zone_id: &str) -> Result<()> {
-    info!("running update routine...");
+    log::info!("running update routine...");
 
     let mut action_executed = false;
 
@@ -43,7 +42,7 @@ pub async fn routine(config: &Config, client: &Client, zone_id: &str) -> Result<
     }
 
     if !action_executed {
-        info!("no action required...");
+        log::info!("no action required...");
     }
 
     Ok(())
@@ -60,7 +59,7 @@ async fn get_a_record_action(
         Some(r) => {
             if let Some(ipv4) = get_public_ipv4().await? {
                 if ipv4 == r.content {
-                    debug!("public ipv4 found ({}) which matches the A record...", ipv4);
+                    log::debug!("public ipv4 found ({}) which matches the A record...", ipv4);
                     Ok(None)
                 } else {
                     Ok(Some(Action::Update(r.clone(), ipv4.into())))
@@ -68,7 +67,7 @@ async fn get_a_record_action(
             } else if config.manage_records {
                 Ok(Some(Action::Delete(r.clone())))
             } else {
-                warn!(
+                log::warn!(
                     "public ipv4 not found but an A record ({}) exists, consider enabling record management",
                     r.content
                 );
@@ -94,13 +93,13 @@ async fn get_a_record_action(
                         },
                     })))
                 } else {
-                    warn!(
+                    log::warn!(
                         "public ipv4 found ({}) but no A record exists, consider enabling record management", ipv4
                     );
                     Ok(None)
                 }
             } else {
-                debug!("public ipv4 not found, matching the absence of an A record...");
+                log::debug!("public ipv4 not found, matching the absence of an A record...");
                 Ok(None)
             }
         }
@@ -118,7 +117,7 @@ async fn get_aaaa_record_action(
         Some(r) => {
             if let Some(ipv6) = get_public_ipv6().await? {
                 if ipv6 == r.content {
-                    debug!(
+                    log::debug!(
                         "public ipv6 found ({}) which matches the AAAA record...",
                         ipv6
                     );
@@ -129,7 +128,7 @@ async fn get_aaaa_record_action(
             } else if config.manage_records {
                 Ok(Some(Action::Delete(r.clone())))
             } else {
-                warn!(
+                log::warn!(
                     "public ipv6 not found but an AAAA record ({}) exists, consider enabling record management",
                     r.content
                 );
@@ -155,14 +154,14 @@ async fn get_aaaa_record_action(
                         },
                     })))
                 } else {
-                    warn!(
+                    log::warn!(
                         "public ipv6 found ({}) but no AAAA record exists, consider enabling record management",
                         ipv6
                     );
                     Ok(None)
                 }
             } else {
-                debug!("public ipv6 not found, matching the absence of an AAAA record...");
+                log::debug!("public ipv6 not found, matching the absence of an AAAA record...");
                 Ok(None)
             }
         }
@@ -173,19 +172,22 @@ async fn execute_action(client: &Client, action: Action) -> Result<()> {
     match action {
         Action::Create(r) => {
             let r = create_record(client, r).await?;
-            info!(
+            log::info!(
                 "{} record created with IP {}, a TTL of {} second(s) and proxying {}...",
-                r.r#type, r.content, r.ttl, r.proxied
+                r.r#type,
+                r.content,
+                r.ttl,
+                r.proxied
             );
         }
         Action::Update(r, ip) => {
             let r = update_record(client, r, ip).await?;
-            info!("{} record IP updated to {}...", r.r#type, r.content);
+            log::info!("{} record IP updated to {}...", r.r#type, r.content);
         }
         Action::Delete(r) => {
             let rtype = r.r#type.clone();
             delete_record(client, r).await?;
-            info!("{} record has been deleted...", rtype);
+            log::info!("{} record has been deleted...", rtype);
         }
     }
 
